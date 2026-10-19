@@ -13,6 +13,28 @@ function Get-WidgetInstallationDataDir {
   return $data
 }
 
+function Read-WidgetSupervisorBinding {
+  param([Parameter(Mandatory=$true)][string]$AppDir,[Parameter(Mandatory=$true)][string]$AgentDir)
+  $bindingFile=Join-Path $AgentDir 'binding.json'
+  if(Test-Path -LiteralPath $bindingFile){
+    # An existing binding remains authoritative, including malformed or foreign ones.
+    return (Get-Content -LiteralPath $bindingFile -Raw -Encoding UTF8 -ErrorAction Stop|ConvertFrom-Json)
+  }
+  # Preflight and stop run before Install-WidgetUpdateAgent recreates binding.json.
+  # Recover identity from this installation's on-disk record without writing during
+  # CheckOnly, and without allowing a fresh/copied folder to claim a stale task.
+  $installationFile=Join-Path $AppDir 'installation.json'
+  if(Test-Path -LiteralPath $installationFile){
+    $installation=Get-Content -LiteralPath $installationFile -Raw -Encoding UTF8 -ErrorAction Stop|ConvertFrom-Json
+    if([string]$installation.appDir -and [string]$installation.dataDir -and [string]$installation.updateAgent -and
+       [IO.Path]::GetFullPath($installation.appDir).TrimEnd('\')-ieq [IO.Path]::GetFullPath($AppDir).TrimEnd('\') -and
+       [IO.Path]::GetFullPath($installation.updateAgent).TrimEnd('\')-ieq [IO.Path]::GetFullPath($AgentDir).TrimEnd('\')){
+      return [pscustomobject]@{sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;appDir=$installation.appDir;dataDir=$installation.dataDir}
+    }
+  }
+  throw 'Stable launcher binding.json is missing and the original installation.json could not verify this installation. Restore the original installation record before reinstalling.'
+}
+
 function Test-WidgetStartupShortcutIdentity {
   param([Parameter(Mandatory=$true)]$Shortcut,[Parameter(Mandatory=$true)][string]$AppDir)
   $expectedExecute=Join-Path $env:WINDIR 'System32\wscript.exe'
@@ -21,7 +43,7 @@ function Test-WidgetStartupShortcutIdentity {
   $stableArguments='"'+(Join-Path $stable 'agent-launch.vbs')+'"'
   $argumentsMatch=[string]$Shortcut.Arguments-ieq $expectedArguments
   if([string]$Shortcut.Arguments-ieq $stableArguments){
-    try{$binding=Get-Content -LiteralPath (Join-Path $stable 'binding.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    try{$binding=Read-WidgetSupervisorBinding -AppDir $AppDir -AgentDir $stable
       $argumentsMatch=$binding.sid-eq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -and [IO.Path]::GetFullPath($binding.appDir)-ieq [IO.Path]::GetFullPath($AppDir)
     }catch{$argumentsMatch=$false}
   }
@@ -105,7 +127,7 @@ function Assert-WidgetSupervisorTaskIdentity {
   $legacy=[string]$action.Arguments-ieq $legacyArguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.AppDir
   $current=[string]$action.Arguments-ieq $Info.Arguments -and [IO.Path]::GetFullPath([string]$action.WorkingDirectory).TrimEnd('\')-ieq $Info.WorkingDirectory
   if($current -and $Info.WorkingDirectory-ine $Info.AppDir){
-    $binding=Get-Content -LiteralPath (Join-Path $Info.AgentDir 'binding.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    $binding=Read-WidgetSupervisorBinding -AppDir $Info.AppDir -AgentDir $Info.AgentDir
     if($binding.sid-ne $Info.Sid -or [IO.Path]::GetFullPath($binding.appDir)-ine $Info.AppDir -or [IO.Path]::GetFullPath($binding.dataDir)-ine $Info.DataDir){throw 'Stable task binding mismatch.'}
   }
   if([IO.Path]::GetFullPath([string]$action.Execute)-ine $Info.Execute -or !($legacy -or $current)){throw 'Supervisor task action path mismatch.'}
