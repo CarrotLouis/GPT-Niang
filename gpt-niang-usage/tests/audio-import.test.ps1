@@ -2,6 +2,8 @@
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System
 $appDir=Split-Path $TestRoot -Parent
+. (Join-Path $appDir 'runtime/update-common.ps1')
+function Get-FileHash {throw 'Get-FileHash module is unavailable in this fixture.'}
 . (Join-Path $appDir 'runtime/audio.ps1')
 $script:checks=0
 function Assert-Audio($Value,[string]$Message){$script:checks++;if(!$Value){throw $Message}}
@@ -22,11 +24,11 @@ try{
     if($LASTEXITCODE){throw 'Fixture creation failed'}
     Initialize-WidgetAudio $appDir $data
     Assert-Audio ($script:gptNiangAudio.Preferences.mode-eq 'builtin') 'Existing installation did not default to builtin sounds'
-    $originalHash=(Get-FileHash -LiteralPath (Join-Path $sources 'eight.wav')).Hash
+    $originalHash=Get-WidgetFileHash (Join-Path $sources 'eight.wav')
     Assert-Audio (Import-WidgetAudio press (Join-Path $sources 'eight.wav')) '8-bit import failed'
     $a=$script:gptNiangAudio
     Assert-Audio ($a.Press -and !$a.Release -and $a.Preferences.mode-eq 'custom') 'Single press import did not leave release silent'
-    Assert-Audio ((Get-FileHash -LiteralPath (Join-Path $sources 'eight.wav')).Hash-eq $originalHash) 'Import changed the source'
+    Assert-Audio ((Get-WidgetFileHash (Join-Path $sources 'eight.wav'))-eq $originalHash) 'Import changed the source'
     Play-WidgetPressSound;Play-WidgetReleaseSound
     Assert-Audio (!$a.Timer.IsEnabled -and !$a.PendingRelease -and $a.ReleasePlayed) 'Press-only release started a timer'
     Assert-Audio ($a.Press.IsLoadCompleted) 'Press-only playback lost its player'
