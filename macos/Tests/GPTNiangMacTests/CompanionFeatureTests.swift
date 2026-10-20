@@ -26,10 +26,12 @@ enum CompanionFeatureChecks {
         expect(model.scale == 0.8 && model.bubbleScale == 0.8, "legacy size migrates to both scales")
         expect(!model.autoQuoteEnabled && model.autoQuoteIntervalSeconds == 300, "automatic quotes opt in")
         model.scale = 1.4; model.bubbleScale = 0.6; model.autoQuoteEnabled = true; model.autoQuoteIntervalSeconds = 900
+        model.completionEnabled = true
         model.savePreferences()
         let restored = WidgetModel(dataDirectory: data, resources: assets)
         expect(restored.scale == 1.4 && restored.bubbleScale == 0.6, "independent sizes persist")
         expect(restored.autoQuoteEnabled && restored.autoQuoteIntervalSeconds == 900, "automatic quote preferences persist")
+        expect(restored.completionEnabled, "completion reminder preference survives feature saves")
         let values = try JSONSerialization.jsonObject(with: Data(contentsOf: prefs)) as! [String: Any]
         expect(values["futureSetting"] as? String == "keep" && restored.x == 0.2 && restored.followCodex, "existing preferences preserved")
 
@@ -139,6 +141,14 @@ enum CompanionFeatureChecks {
         auto.quoteText = "unsaved draft"
         for tick in 61...150 { auto.tickAutomaticQuotes(now: Double(tick)) }
         expect(!auto.bubble && auto.quoteText == "unsaved draft", "settings block automatic quotes and protect unsaved editor")
+        auto.automaticQuoteBlocked = false
+        auto.showCompletion()
+        let completionMessage = auto.message
+        for tick in 151...240 { auto.tickAutomaticQuotes(now: Double(tick)) }
+        expect(auto.isCompletionMessage && auto.bubble && auto.message == completionMessage, "automatic quotes cannot replace completion notices")
+        auto.hideCompletion()
+        for tick in 241...301 { auto.tickAutomaticQuotes(now: Double(tick)) }
+        expect(auto.bubble && !auto.isCompletionMessage && auto.message == "测试语录", "automatic quotes resume after a fresh idle interval following completion")
     }
 
     static func fixture(_ url: URL, width: Int, height: Int, transparent: Bool = false) throws {

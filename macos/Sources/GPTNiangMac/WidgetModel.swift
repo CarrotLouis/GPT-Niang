@@ -92,7 +92,7 @@ final class WidgetModel: ObservableObject {
     var workerRunning: Bool { worker?.isRunning == true }
     var updateIdle: Bool { updateIsIdle() }
     func updateIsIdle(now: Date = Date(), isAlive: (Int32) -> Bool = { kill($0, 0) == 0 || errno == EPERM }) -> Bool {
-        guard workerHandoff == nil, !workerRecoveryPending, !refreshing, !interactionActive, !audio.busy else { return false }
+        guard workerHandoff == nil, !workerRecoveryPending, !refreshing, !interactionActive, !importingCharacter, !audio.busy else { return false }
         if let request = readStopRequest(), request != initialStopRequest { return false }
         let owner: QuotaWorkerRecord?, status: QuotaWorkerRecord?
         do {
@@ -209,7 +209,7 @@ final class WidgetModel: ObservableObject {
     }
     func tickAutomaticQuotes(now: Double) {
         if autoQuoteSchedule.poll(now: now, enabled: autoQuoteEnabled, interval: autoQuoteIntervalSeconds,
-                                  eligible: presentationVisible && !automaticQuoteBlocked && !importingCharacter &&
+                                  eligible: presentationVisible && !automaticQuoteBlocked && !importingCharacter && !audio.busy &&
                                     !bubble && !interactionActive && !refreshing) {
             showQuote()
         }

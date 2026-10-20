@@ -7,8 +7,9 @@ mkdir -p "$TEST_DIR"
 SDK_PATH="${GPT_NIANG_SDK:-$(xcrun --show-sdk-path)}"
 swiftc -D COMPANION_FEATURE_STANDALONE -sdk "$SDK_PATH" \
   -target "$(uname -m)-apple-macosx13.0" -I "$PRODUCTS" \
-  "$PRODUCTS/GPTNiangCore.o" \
+  "$PRODUCTS/GPTNiangCore.o" "$PRODUCTS/GPTNiangUpdate.o" \
   "$ROOT_DIR/macos/Sources/GPTNiangMac/WidgetModel.swift" \
+  "$ROOT_DIR/macos/Sources/GPTNiangMac/AudioImport.swift" \
   "$ROOT_DIR/macos/Sources/GPTNiangMac/CharacterLibrary.swift" \
   "$ROOT_DIR/macos/Sources/GPTNiangMac/CharacterInteraction.swift" \
   "$ROOT_DIR/macos/Sources/GPTNiangMac/SystemMusicCapture.swift" \
