@@ -37,7 +37,15 @@ final class WidgetModel: ObservableObject {
     @Published var language: InterfaceLanguage
     @Published var bubbleTapAdvance: Bool
     @Published var displayScale = 1.0
+    @Published var displayBubbleScale = 1.0
     @Published var scale: Double
+    @Published var bubbleScale: Double
+    @Published var autoQuoteEnabled: Bool
+    @Published var autoQuoteIntervalSeconds: Int
+    @Published private(set) var characters: [CharacterRecord] = []
+    @Published private(set) var selectedCharacterID: String
+    @Published private(set) var canUndoCharacterRemoval = false
+    @Published private(set) var characterThumbnails: [String: NSImage] = [:]
     @Published var volume: Double
     @Published var loginRequested: Bool
     @Published var followCodex: Bool
@@ -58,10 +66,15 @@ final class WidgetModel: ObservableObject {
     @Published var refreshing = false
     @Published var trackingNote: String?
     var interactionActive = false
+    var presentationVisible = false
+    var automaticQuoteBlocked = false
+    private var importingCharacter = false
+    private var autoQuoteSchedule = AutoQuoteSchedule()
     let dataDirectory: URL
     let resources: URL
     private let backendVersion: String?
-    let characterImage: NSImage?
+    @Published private(set) var characterImage: NSImage?
+    private let characterLibrary: CharacterLibrary
     let defaults: UserDefaults
     private var worker: Process?
     private var lastWorkerStart = -Double.infinity
@@ -114,6 +127,7 @@ final class WidgetModel: ObservableObject {
         let metadata = (try? Data(contentsOf: manifest)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         backendVersion = metadata?["version"] as? String
         characterImage = NSImage(contentsOf: resources.appendingPathComponent("gpt-dragon-niang-bust.png"))
+        characterLibrary = CharacterLibrary(dataDirectory: dataDirectory)
         // Keep preferences together with quota state; no shared Codex config edits.
         let prefs = dataDirectory.appendingPathComponent("preferences.json")
         let values = (try? Data(contentsOf: prefs)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
@@ -125,7 +139,12 @@ final class WidgetModel: ObservableObject {
         colorPaused = values["colorPaused"] as? Bool ?? false
         specialQuotes = values["specialQuotes"] as? String ?? "Token来，Token来"
         bubbleTapAdvance = values["bubbleTapAdvance"] as? Bool ?? false
-        scale = min(2.5, max(0.6, values["scale"] as? Double ?? 1))
+        let oldScale = CompanionLayout.preferenceScale(values["scale"] as? Double ?? 1)
+        scale = oldScale
+        bubbleScale = CompanionLayout.preferenceScale(values["bubbleScale"] as? Double ?? oldScale)
+        autoQuoteEnabled = values["autoQuoteEnabled"] as? Bool ?? false
+        autoQuoteIntervalSeconds = AutoQuoteSchedule.validInterval(values["autoQuoteIntervalSeconds"] as? Int ?? 300)
+        selectedCharacterID = values["characterId"] as? String ?? CharacterRecord.builtin.id
         volume = min(1, max(0, values["volume"] as? Double ?? 0.9))
         loginRequested = values["loginRequested"] as? Bool ?? false
         followCodex = values["followCodex"] as? Bool ?? true
@@ -143,6 +162,8 @@ final class WidgetModel: ObservableObject {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dataDirectory.path)
         } catch { settingsError = text("無法建立本機資料目錄：%@", String(describing: error.localizedDescription)) }
         initialStopRequest = readStopRequest()
+        reloadCharacters()
+        if let error = characterLibrary.loadError { settingsError = text(error.localizedDescription) }
         loadQuotes()
         snapshot = UsageSnapshot(error: text("正在讀取目前帳戶的額度…"))
     }
@@ -176,6 +197,82 @@ final class WidgetModel: ObservableObject {
         }
         if worker?.isRunning == true { checkOwnedWorker(now: now) }
         else { startWorker(now: now) }
+        tickAutomaticQuotes(now: now)
+    }
+    func tickAutomaticQuotes(now: Double) {
+        if autoQuoteSchedule.poll(now: now, enabled: autoQuoteEnabled, interval: autoQuoteIntervalSeconds,
+                                  eligible: presentationVisible && !automaticQuoteBlocked && !importingCharacter &&
+                                    !bubble && !interactionActive && !refreshing) {
+            showQuote()
+        }
+    }
+    var requestedLayout: CompanionLayout { CompanionLayout(characterScale: scale, bubbleScale: bubbleScale) }
+    var displayLayout: CompanionLayout { CompanionLayout(characterScale: displayScale, bubbleScale: displayBubbleScale) }
+    func fitLayout(in area: CGSize) -> CGSize {
+        let fitted = requestedLayout.fitted(in: area)
+        if abs(displayScale - fitted.characterScale) > 0.0001 { displayScale = fitted.characterScale }
+        if abs(displayBubbleScale - fitted.bubbleScale) > 0.0001 { displayBubbleScale = fitted.bubbleScale }
+        return fitted.size
+    }
+
+    private func reloadCharacters() {
+        characters = characterLibrary.characters
+        canUndoCharacterRemoval = characterLibrary.canUndo
+        var thumbnails: [String: NSImage] = [:]
+        thumbnails[CharacterRecord.builtin.id] = NSImage(contentsOf: resources.appendingPathComponent("gpt-dragon-niang-bust.png"))
+        for record in characters where !record.isBuiltin { thumbnails[record.id] = characterLibrary.image(for: record, maxSize: 160) }
+        characterThumbnails = thumbnails
+        if let selected = characters.first(where: { $0.id == selectedCharacterID }), !selected.isBuiltin,
+           let image = characterLibrary.image(for: selected) {
+            characterImage = image
+        } else {
+            selectedCharacterID = CharacterRecord.builtin.id
+            characterImage = thumbnails[CharacterRecord.builtin.id]
+        }
+    }
+    func selectCharacter(_ record: CharacterRecord) {
+        guard characters.contains(record) else { return }
+        let image = record.isBuiltin ? characterThumbnails[record.id] : characterLibrary.image(for: record)
+        guard let image else { settingsError = text(CharacterLibrary.LibraryError.missingImage.localizedDescription); return }
+        selectedCharacterID = record.id; characterImage = image; settingsError = nil
+        savePreferences()
+    }
+    func importCharacter() {
+        let picker = NSOpenPanel()
+        picker.allowedContentTypes = [.png, .jpeg, .bmp, .gif]
+        picker.allowsMultipleSelection = false; picker.canChooseDirectories = false
+        picker.prompt = text("导入角色")
+        importingCharacter = true
+        picker.begin { [weak self] response in
+            Task { @MainActor in
+                guard let self else { return }
+                defer { self.importingCharacter = false }
+                guard response == .OK, let url = picker.url else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                self.importCharacter(at: url)
+            }
+        }
+    }
+    func importCharacter(at url: URL) {
+        do {
+            let record = try characterLibrary.importImage(at: url)
+            selectedCharacterID = record.id
+            reloadCharacters(); savePreferences(); settingsError = nil
+        } catch { settingsError = text(error.localizedDescription) }
+    }
+    func removeSelectedCharacter() {
+        guard selectedCharacterID != CharacterRecord.builtin.id else { return }
+        do {
+            try characterLibrary.remove(selectedCharacterID)
+            reloadCharacters(); savePreferences(); settingsError = nil
+        } catch { settingsError = text(error.localizedDescription) }
+    }
+    func undoCharacterRemoval() {
+        do {
+            if let record = try characterLibrary.undoRemoval() { selectedCharacterID = record.id }
+            reloadCharacters(); savePreferences(); settingsError = nil
+        } catch { settingsError = text(error.localizedDescription) }
     }
     func readSnapshot(_ data: Data) {
             if data != lastStatusData {
@@ -389,7 +486,9 @@ final class WidgetModel: ObservableObject {
         let current: [String: Any] = ["layoutVersion": 2, "scale": scale, "volume": volume, "followCodex": followCodex, "loginRequested": loginRequested, "x": x, "y": y,
             "colorMode": colorMode.rawValue, "fullChance": fullChance, "textChance": textChance, "colorPaused": colorPaused,
             "specialQuotes": specialQuotes, "bubbleTapAdvance": bubbleTapAdvance, "language": language.rawValue,
-            "desktopTopmost": desktopTopmost, "soundOn": soundOn, "hideMenu": hideMenu, "taskCompletionBubble": completionEnabled]
+            "desktopTopmost": desktopTopmost, "soundOn": soundOn, "hideMenu": hideMenu, "taskCompletionBubble": completionEnabled,
+            "bubbleScale": bubbleScale, "characterId": selectedCharacterID,
+            "autoQuoteEnabled": autoQuoteEnabled, "autoQuoteIntervalSeconds": autoQuoteIntervalSeconds]
         values.merge(current) { _, new in new }
         values["desktopLeft"] = desktopLeft; values["desktopBottom"] = desktopBottom
         try? writeJSON(values, to: file)

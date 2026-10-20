@@ -165,3 +165,27 @@ No Windows updater or PowerShell is shipped in the Mac app. Node.js 20+ remains 
 Windows defines shared interaction behavior. Every left click, including double and rapid clicks, performs the normal quota/quote action and press/rebound feedback. Right-click opens an AppKit menu; the hover button and menu bar provide native settings. The scale range is 60–250% with 80/100/140% presets. Desktop mode supports cross-screen dragging, a remembered topmost switch (off by default), and a separately saved position. Returning to host mode immediately returns to the normal window level. Refresh does not open the bubble. Weighted quotes round-trip and custom quotes are backed up before reset.
 
 Business `individualLimit` windows with null minutes decode alongside timed windows. Two compact rows show the personal limit and shortest time window, while hover details retain all valid windows. Interface language follows the system or an explicit Simplified/Traditional choice; authored quotes and backend data remain untouched. UI, menus, drag capture and updates remain native SwiftUI/AppKit implementations.
+# Local companion features
+
+This local branch adds three settings to the previously tested macOS window-follow
+fixes. It does not include the Windows music-reactive mode.
+
+- **Character gallery:** import PNG/JPEG/BMP/GIF (first frame), select a character,
+  remove it, or undo removal. Imports become owned PNG copies in
+  `characters/`; removing a character retains the copy for undo across restarts.
+  The default dragon cannot be removed. Transparent pixels and aspect ratio are
+  preserved. Input limits match Windows: 20 MB, 4096 pixels per dimension,
+  16 million pixels, normalized to at most 2048 pixels per dimension.
+- **Independent sizes:** character and bubble each support 60–250%. Existing
+  `scale` preferences initialize both sizes so upgrades retain the old appearance.
+  The presets adjust both together; fitting a small host window does not overwrite
+  the requested sizes. Transparent character regions do not intercept clicks.
+- **Automatic quotes:** off by default, with 1/5/15-minute intervals. A full quiet
+  interval starts after the widget becomes visible and idle. Existing bubbles,
+  interaction, refresh, menus, and settings pause the schedule. Sleep and clock
+  discontinuities reset it. Quotes use the existing pool and five-second lifetime,
+  without activating the app or requesting quota data.
+
+`script/test_companion_features.sh <release-products> <new-scratch-directory>`
+runs the feature checks without XCTest. Set `GPT_NIANG_SDK` to the desired macOS
+SDK. The same assertions are also included in `GPTNiangMacTests`.

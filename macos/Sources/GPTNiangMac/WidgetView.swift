@@ -28,7 +28,7 @@ struct WidgetView: View {
             let phase = model.colorPaused || reduceMotion ? frozenPhase : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.6) / 2.6
             stage(date: context.date, phase: phase)
         }
-        .frame(width: 378 * model.displayScale, height: 378 * model.displayScale, alignment: .topLeading)
+        .frame(width: model.displayLayout.size.width, height: model.displayLayout.size.height, alignment: .topLeading)
         .environment(\.colorScheme, .light)
         .onAppear { animateBubble(model.bubble); displayedMessage = model.message }
         .onChange(of: model.colorPaused) { paused in
@@ -62,6 +62,51 @@ struct WidgetView: View {
     }
     private func stage(date: Date, phase: Double) -> some View {
         let mirrored = model.facingLeft
+        let layout = model.displayLayout
+        let c = layout.characterScale, b = layout.bubbleScale
+        return ZStack(alignment: .topLeading) {
+            bubbleScene(date: date, phase: phase)
+                .frame(width: 350, height: 239, alignment: .topLeading)
+                .scaleEffect(b, anchor: .topLeading)
+                .frame(width: layout.bubble.width, height: layout.bubble.height, alignment: .topLeading)
+                .offset(x: layout.bubble.minX, y: layout.bubble.minY)
+            if let image = model.characterImage {
+                let girl = Image(nsImage: image).resizable().interpolation(.high).scaledToFit().frame(width: 208, height: 208)
+                ZStack {
+                    if model.colorScope == .full { Rectangle().fill(style("accent", phase: phase)).mask(girl).opacity(0.62).blur(radius: 7) }
+                    girl
+                    if model.colorScope == .full { Rectangle().fill(style("accent", phase: phase)).mask(girl).opacity(0.34).allowsHitTesting(false) }
+                }
+                .frame(width: 208, height: 208).allowsHitTesting(false)
+                .overlay(CharacterInteraction(onPress: { down in
+                    model.interactionActive = down
+                    withAnimation(reduceMotion ? nil : rebound) { pressed = down }
+                    model.play(down ? "press" : "release")
+                }, onDrag: { translation in
+                    onDrag(translation)
+                    if translation == .zero { model.savePreferences() }
+                }, onClick: { model.characterClick() }, onMenu: onContextMenu, image: image))
+                .onHover { hovering = $0 }
+                .scaleEffect(c, anchor: .topLeading)
+                .frame(width: layout.character.width, height: layout.character.height, alignment: .topLeading)
+                .offset(x: layout.character.minX, y: layout.character.minY)
+                .accessibilityElement().accessibilityLabel(model.text("GPT 娘：點擊查看額度，拖動調整位置"))
+                .accessibilityAddTraits(.isButton).accessibilityAction { model.characterClick() }
+            }
+            if hovering && !model.hideMenu {
+                Button(action: onSettings) { Image(systemName: "line.3.horizontal").font(.system(size: 15)).foregroundStyle(ink).frame(width: 24, height: 24).background(Color(hex: "EDE7F6"), in: RoundedRectangle(cornerRadius: 6)) }
+                    .buttonStyle(.plain).scaleEffect(x: mirrored ? -c : c, y: c, anchor: .topLeading)
+                    .offset(x: layout.character.minX + (mirrored ? 202 : 178) * c, y: layout.character.minY + 20 * c)
+                    .help(model.text("掛件設定")).accessibilityLabel(model.text("掛件設定"))
+            }
+        }
+        .frame(width: layout.size.width - 2 * layout.padding, height: layout.size.height - 2 * layout.padding, alignment: .topLeading)
+        .scaleEffect(x: pressed ? 1.05 : 1, y: pressed ? 0.88 : 1, anchor: .bottom)
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1, anchor: .bottom)
+        .padding(layout.padding)
+    }
+    private func bubbleScene(date: Date, phase: Double) -> some View {
+        let mirrored = model.facingLeft
         return ZStack(alignment: .topLeading) {
             OriginalBubbleShape().fill(style("surface", phase: phase))
                 .overlay(OriginalBubbleShape().stroke(style("accent", phase: phase), lineWidth: 4))
@@ -86,36 +131,7 @@ struct WidgetView: View {
                     .scaleEffect(x: mirrored ? -1 : 1, y: 1).opacity(text).offset(x: 184, y: 20)
                     .help(model.text("立即刷新額度")).accessibilityLabel(model.text("刷新額度"))
             }
-            if let image = model.characterImage {
-                let girl = Image(nsImage: image).resizable().interpolation(.high).scaledToFill().frame(width: 208, height: 208)
-                ZStack {
-                    if model.colorScope == .full { Rectangle().fill(style("accent", phase: phase)).mask(girl).opacity(0.62).blur(radius: 7) }
-                    girl
-                    if model.colorScope == .full { Rectangle().fill(style("accent", phase: phase)).mask(girl).opacity(0.34).allowsHitTesting(false) }
-                }
-                .frame(width: 208, height: 208).contentShape(Rectangle())
-                .overlay(CharacterInteraction(onPress: { down in
-                    model.interactionActive = down
-                    withAnimation(reduceMotion ? nil : rebound) { pressed = down }
-                    model.play(down ? "press" : "release")
-                }, onDrag: { translation in
-                    onDrag(translation)
-                    if translation == .zero { model.savePreferences() }
-                }, onClick: { model.characterClick() }, onMenu: onContextMenu))
-                .onHover { hovering = $0 }.offset(x: 142, y: 142)
-                .accessibilityElement().accessibilityLabel(model.text("GPT 娘：點擊查看額度，拖動調整位置"))
-                .accessibilityAddTraits(.isButton).accessibilityAction { model.characterClick() }
-            }
-            if hovering && !model.hideMenu {
-                Button(action: onSettings) { Image(systemName: "line.3.horizontal").font(.system(size: 15)).foregroundStyle(ink).frame(width: 24, height: 24).background(Color(hex: "EDE7F6"), in: RoundedRectangle(cornerRadius: 6)) }
-                    .buttonStyle(.plain).scaleEffect(x: mirrored ? -1 : 1, y: 1).offset(x: 320, y: 162)
-                    .help(model.text("掛件設定")).accessibilityLabel(model.text("掛件設定"))
-            }
         }
-        .frame(width: 350, height: 350, alignment: .topLeading)
-        .scaleEffect(x: pressed ? 1.05 : 1, y: pressed ? 0.88 : 1, anchor: .bottom)
-        .scaleEffect(x: mirrored ? -1 : 1, y: 1, anchor: .bottom)
-        .padding(14).scaleEffect(model.displayScale, anchor: .topLeading)
     }
     private func scene(now: Date, phase: Double) -> some View {
         Group {

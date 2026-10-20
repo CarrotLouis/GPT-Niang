@@ -185,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func checkUpdate() { showSettings(); updater.check(manual: true) }
     @objc private func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 620), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             window.title = model.text("GPT 娘設定"); window.isReleasedWhenClosed = false; window.delegate = self
             window.contentView = NSHostingView(rootView: SettingsView(model: model, updater: updater))
             window.center(); settingsWindow = window
@@ -348,7 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             forceHostDiscovery = true; needsHostOrder = true
         }
         previousFollow = model.followCodex
-        var size = CGSize(width: 378 * model.scale, height: 378 * model.scale)
+        var size = model.requestedLayout.size
         let now = ProcessInfo.processInfo.systemUptime
         let codexFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.openai.codex"
         let host = model.followCodex ? codexWindow(now: now, frontmost: codexFrontmost) : nil
@@ -359,11 +359,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             if panel.level != level { panel.level = level; needsHostOrder = true }
             if let (rect, number) = host {
                 hostRect = rect
+                size = model.fitLayout(in: rect.size)
                 let desired: CGRect? = dragOrigin == nil
                     ? WidgetPlacement.followFrame(host: rect, size: size, x: model.x, y: model.y)
                     : panel.placementFrame
                 if let desired, panel.place(desired, clippedTo: rect) {
-                    if model.displayScale != model.scale { model.displayScale = model.scale }
                     if dragOrigin == nil && (!panel.isVisible || !panel.isOnActiveSpace || needsHostOrder || lastHostNumber != number || (codexFrontmost && !wasCodexFrontmost)) {
                         panel.order(.above, relativeTo: number)
                         needsHostOrder = false
@@ -390,9 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 hypot($0.frame.midX-point.x, $0.frame.midY-point.y) < hypot($1.frame.midX-point.x, $1.frame.midY-point.y)
             } ?? NSScreen.main!
             let area = screen.visibleFrame
-            let fitted = min(model.scale, area.width / 378, area.height / 378)
-            if abs(model.displayScale - fitted) > 0.001 { model.displayScale = fitted }
-            size = CGSize(width: 378 * fitted, height: 378 * fitted)
+            size = model.fitLayout(in: area.size)
             if dragOrigin == nil {
                 model.migrateDesktopPosition(area: area, size: size)
                 let defaultFrame = WidgetPlacement.frame(host: area, visibleScreen: area, size: size, x: 1, y: 0)
@@ -410,6 +408,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         completion.tick(codexFrontmost: codexFrontmost, busy: completionBusy)
         if completion.temporaryTopmost { _ = panel.place(panel.placementFrame, clippedTo: nil) }
         wasCodexFrontmost = codexFrontmost
+        model.presentationVisible = visible
+        model.automaticQuoteBlocked = settingsWindow?.isVisible == true || speedWindow?.isVisible == true || trackingMenus > 0
         if cadence.presence(now: now, visible: visible) { model.writePresence(visible: visible) }
         if let diagnosticsURL, cadence.diagnostics(now: now) {
             let values: [String: Any] = ["visible": panel.isVisible, "followCodex": model.followCodex, "hostFound": host != nil,
@@ -420,6 +420,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 "hostWindow": host?.1 ?? 0, "frame": NSStringFromRect(panel.frame), "placementFrame": NSStringFromRect(panel.placementFrame), "quotaOK": model.snapshot.ok,
                 "queryOK": model.snapshot.queryOk ?? false, "quotaWindowCount": model.snapshot.windows.count,
                 "hasMessage": model.message != nil, "bubbleVisible": model.bubble, "scale": model.scale,
+                "bubbleScale": model.bubbleScale, "displayBubbleScale": model.displayBubbleScale,
+                "characterId": model.selectedCharacterID, "characterCount": model.characters.count,
+                "autoQuoteEnabled": model.autoQuoteEnabled, "autoQuoteIntervalSeconds": model.autoQuoteIntervalSeconds,
                 "settingsVisible": settingsWindow?.isVisible ?? false, "speedVisible": speedWindow?.isVisible ?? false, "speedRows": speedStore.rows.count, "dragEvents": dragEvents, "displayScale": model.displayScale, "at": Date().timeIntervalSince1970]
             if let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: diagnosticsURL, options: .atomic) }
         }
