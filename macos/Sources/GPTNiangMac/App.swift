@@ -25,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var languageSubscription: AnyCancellable?
     private var trackingMenus = 0
     private var panel: WidgetPanel!
+    private var musicStage: NSPanel?
+    private var musicStageNeedsOrder = true
+    private var musicStageFollowing = true
     private var settingsWindow: NSWindow?
     private var speedWindow: NSWindow?
     private let speedStore = ThreadSpeedStore()
@@ -123,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             model.audio.updateNativeItem(item)
             if item.action == #selector(toggleCompletion) { item.state = model.completionEnabled ? .on : .off }
             if item.action == #selector(showQuota) { item.title = model.text(model.bubble && model.message == nil ? "收起气泡" : "查看額度") }
+            if item.action == #selector(toggleMusic) { item.state = model.music.enabled ? .on : .off }
         }
     }
     func menuDidClose(_ menu: NSMenu) { trackingMenus = max(0, trackingMenus - 1) }
@@ -148,6 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let reminder = NSMenuItem(title: model.text("回答结束提醒"), action: #selector(toggleCompletion), keyEquivalent: ""); reminder.target = self; menu.addItem(reminder)
         let audio = NSMenuItem(title: model.text("声音与点击"), action: nil, keyEquivalent: "")
         audio.submenu = model.audio.nativeMenu(target: self, action: #selector(audioAction(_:)), delegate: self); menu.addItem(audio)
+        let music = NSMenuItem(title: model.text("音乐律动"),action: #selector(toggleMusic),keyEquivalent: "")
+        music.target = self; menu.addItem(music)
         let settings = NSMenuItem(title: model.text("設定…"), action: #selector(showSettings), keyEquivalent: ","); settings.target = self; menu.addItem(settings)
         let update = NSMenuItem(title: model.text("檢查更新…"), action: #selector(checkUpdate), keyEquivalent: ""); update.target = self; menu.addItem(update)
         let quit = NSMenuItem(title: model.text("退出 GPT 娘"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(quit)
@@ -182,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func showQuota() { model.toggleQuota(); updateWindow() }
     @objc private func refresh() { model.refresh() }
     @objc private func quote() { model.showQuote() }
+    @objc private func toggleMusic() { model.music.setEnabled(!model.music.enabled) }
     @objc private func checkUpdate() { showSettings(); updater.check(manual: true) }
     @objc private func showSettings() {
         if settingsWindow == nil {
@@ -230,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             "com.apple.WindowManager" as CFString) as? Bool) ?? false
     }
     private func hideFollowingPanel() {
+        musicStage?.orderOut(nil)
         needsHostOrder = true; forceHostDiscovery = true
         // A host hide/quit event must not cut short an active background notice.
         // Its controller retains the existing deadline and restores the layer;
@@ -361,11 +369,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 hostRect = rect
                 size = model.fitLayout(in: rect.size)
                 let desired: CGRect? = dragOrigin == nil
-                    ? WidgetPlacement.followFrame(host: rect, size: size, x: model.x, y: model.y)
+                    ? WidgetPlacement.followFrame(host: rect, size: size, x: model.x, y: model.y).map { musicFrame($0,area: rect,now: now) }
                     : panel.placementFrame
                 if let desired, panel.place(desired, clippedTo: rect) {
                     if dragOrigin == nil && (!panel.isVisible || !panel.isOnActiveSpace || needsHostOrder || lastHostNumber != number || (codexFrontmost && !wasCodexFrontmost)) {
                         panel.order(.above, relativeTo: number)
+                        musicStageNeedsOrder = true
                         needsHostOrder = false
                     }
                     visible = panel.isVisible && panel.isOnActiveSpace
@@ -377,6 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 // Never carry a stale panel into the next Stage Manager set or
                 // Space. The former 0.75s grace period caused traveling flashes.
                 if panel.isVisible { panel.orderOut(nil) }
+                musicStage?.orderOut(nil)
                 lastHostNumber = nil; hostRect = nil; needsHostOrder = true
                 let note = model.text("未找到可見的 Codex 主視窗。你仍可關閉跟隨，在桌面顯示掛件。")
                 if model.trackingNote != note { model.trackingNote = note }
@@ -394,11 +404,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             if dragOrigin == nil {
                 model.migrateDesktopPosition(area: area, size: size)
                 let defaultFrame = WidgetPlacement.frame(host: area, visibleScreen: area, size: size, x: 1, y: 0)
-                let frame = WidgetPlacement.desktopFrame(area: area, size: size,
+                let normal = WidgetPlacement.desktopFrame(area: area, size: size,
                     origin: CGPoint(x: model.desktopLeft ?? defaultFrame.minX, y: model.desktopBottom ?? defaultFrame.minY))
+                let frame = musicFrame(normal,area: area,now: now)
                 _ = panel.place(frame, clippedTo: nil)
             }
-            if !panel.isVisible || levelChanged { panel.orderFrontRegardless() }; visible = true; hostRect = area
+            if !panel.isVisible || levelChanged { panel.orderFrontRegardless(); musicStageNeedsOrder = true }; visible = true; hostRect = area
         }
         if let area = hostRect {
             let left = panel.placementFrame.midX < area.midX
@@ -410,6 +421,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         wasCodexFrontmost = codexFrontmost
         model.presentationVisible = visible
         model.automaticQuoteBlocked = settingsWindow?.isVisible == true || speedWindow?.isVisible == true || trackingMenus > 0
+        if !visible { model.music.pause(now: now) }
+        updateMusicStage(visible: visible)
         if cadence.presence(now: now, visible: visible) { model.writePresence(visible: visible) }
         if let diagnosticsURL, cadence.diagnostics(now: now) {
             let values: [String: Any] = ["visible": panel.isVisible, "followCodex": model.followCodex, "hostFound": host != nil,
@@ -423,11 +436,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 "bubbleScale": model.bubbleScale, "displayBubbleScale": model.displayBubbleScale,
                 "characterId": model.selectedCharacterID, "characterCount": model.characters.count,
                 "autoQuoteEnabled": model.autoQuoteEnabled, "autoQuoteIntervalSeconds": model.autoQuoteIntervalSeconds,
+                "musicEnabled": model.music.enabled, "musicRunning": model.music.running, "musicBPM": model.music.bpm,
+                "musicLevel": model.music.audio.audio.level, "musicOnsets": model.music.audio.audio.onsets,
+                "musicStageVisible": musicStage?.isVisible ?? false,
                 "settingsVisible": settingsWindow?.isVisible ?? false, "speedVisible": speedWindow?.isVisible ?? false, "speedRows": speedStore.rows.count, "dragEvents": dragEvents, "displayScale": model.displayScale, "at": Date().timeIntervalSince1970]
             if let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: diagnosticsURL, options: .atomic) }
         }
     }
     private func drag(_ translation: CGSize) {
+        if model.music.running { return }
         if translation == .zero {
             if model.followCodex, let area = hostRect {
                 let travel = max(0, area.width - panel.placementFrame.width - 24)
@@ -465,6 +482,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         _ = panel.place(CGRect(x: area.minX + insetX + usableX * model.x,
                                y: area.minY + insetY + usableY * model.y,
                                width: panel.placementFrame.width, height: panel.placementFrame.height), clippedTo: area)
+    }
+
+    private func musicFrame(_ normal: CGRect, area: CGRect, now: Double) -> CGRect {
+        let paused = settingsWindow?.isVisible == true || speedWindow?.isVisible == true || trackingMenus > 0 || model.bubble
+        return model.music.frame(normal: normal,area: area,layout: model.displayLayout,
+                                 visibleRect: model.characterVisibleRect,now: now,paused: paused)
+    }
+    private func updateMusicStage(visible: Bool) {
+        guard visible, model.music.running, model.musicLights, !model.automaticQuoteBlocked, !model.bubble, let area = hostRect else {
+            musicStage?.orderOut(nil); musicStageNeedsOrder = true; return
+        }
+        if musicStage == nil {
+            let window = NSPanel(contentRect: area,styleMask: [.borderless,.nonactivatingPanel],backing: .buffered,defer: false)
+            window.isReleasedWhenClosed = false; window.isOpaque = false; window.backgroundColor = .clear
+            window.hasShadow = false; window.hidesOnDeactivate = false; window.ignoresMouseEvents = true
+            window.isFloatingPanel = false
+            window.collectionBehavior = WindowFollowPolicy.collectionBehavior; window.animationBehavior = .none
+            window.contentView = NSHostingView(rootView: MusicStageView(music: model.music,following: model.followCodex))
+            musicStageFollowing = model.followCodex; musicStage = window; musicStageNeedsOrder = true
+        }
+        guard let stage = musicStage else { return }
+        if musicStageFollowing != model.followCodex {
+            (stage.contentView as? NSHostingView<MusicStageView>)?.rootView = MusicStageView(music: model.music,following: model.followCodex)
+            musicStageFollowing = model.followCodex
+        }
+        if stage.level != panel.level { stage.level = panel.level; musicStageNeedsOrder = true }
+        if stage.frame != area { stage.setFrame(area,display: true) }
+        if !stage.isVisible || musicStageNeedsOrder {
+            stage.order(.below,relativeTo: panel.windowNumber); musicStageNeedsOrder = false
+        }
     }
 }
 

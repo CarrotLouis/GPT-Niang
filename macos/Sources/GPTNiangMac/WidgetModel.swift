@@ -42,6 +42,10 @@ final class WidgetModel: ObservableObject {
     @Published var bubbleScale: Double
     @Published var autoQuoteEnabled: Bool
     @Published var autoQuoteIntervalSeconds: Int
+    @Published var musicLights: Bool
+    let music: MusicController
+    private var musicSubscription: AnyCancellable?
+    private(set) var characterVisibleRect = CGRect(x: 0,y: 0,width: 208,height: 208)
     @Published private(set) var characters: [CharacterRecord] = []
     @Published private(set) var selectedCharacterID: String
     @Published private(set) var canUndoCharacterRemoval = false
@@ -121,11 +125,12 @@ final class WidgetModel: ObservableObject {
     private var lastChecked: Double?
     private let logger = Logger(subsystem: "io.github.t7moris.GPTNiangMac", category: "worker")
 
-    init(dataDirectory: URL, resources: URL) {
+    init(dataDirectory: URL, resources: URL, music: MusicController? = nil) {
         self.dataDirectory = dataDirectory; self.resources = resources
         let manifest = resources.appendingPathComponent("Backend/.codex-plugin/plugin.json")
         let metadata = (try? Data(contentsOf: manifest)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         backendVersion = metadata?["version"] as? String
+        self.music = music ?? MusicController()
         characterImage = NSImage(contentsOf: resources.appendingPathComponent("gpt-dragon-niang-bust.png"))
         characterLibrary = CharacterLibrary(dataDirectory: dataDirectory)
         // Keep preferences together with quota state; no shared Codex config edits.
@@ -144,6 +149,7 @@ final class WidgetModel: ObservableObject {
         bubbleScale = CompanionLayout.preferenceScale(values["bubbleScale"] as? Double ?? oldScale)
         autoQuoteEnabled = values["autoQuoteEnabled"] as? Bool ?? false
         autoQuoteIntervalSeconds = AutoQuoteSchedule.validInterval(values["autoQuoteIntervalSeconds"] as? Int ?? 300)
+        musicLights = values["musicLights"] as? Bool ?? true
         selectedCharacterID = values["characterId"] as? String ?? CharacterRecord.builtin.id
         volume = min(1, max(0, values["volume"] as? Double ?? 0.9))
         loginRequested = values["loginRequested"] as? Bool ?? false
@@ -166,6 +172,7 @@ final class WidgetModel: ObservableObject {
         if let error = characterLibrary.loadError { settingsError = text(error.localizedDescription) }
         loadQuotes()
         snapshot = UsageSnapshot(error: text("正在讀取目前帳戶的額度…"))
+        musicSubscription = self.music.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     func text(_ key: String, _ args: String...) -> String { language.text(key, arguments: args) }
@@ -177,6 +184,7 @@ final class WidgetModel: ObservableObject {
         }
     }
     func stop() {
+        music.stop()
         timer?.invalidate(); timer = nil; audio.stop()
         writePresence(visible: false)
         if let worker, worker.isRunning { worker.terminate() }; worker = nil
@@ -206,8 +214,8 @@ final class WidgetModel: ObservableObject {
             showQuote()
         }
     }
-    var requestedLayout: CompanionLayout { CompanionLayout(characterScale: scale, bubbleScale: bubbleScale) }
-    var displayLayout: CompanionLayout { CompanionLayout(characterScale: displayScale, bubbleScale: displayBubbleScale) }
+    var requestedLayout: CompanionLayout { CompanionLayout(characterScale: scale, bubbleScale: bubbleScale, musicAccessories: music.running) }
+    var displayLayout: CompanionLayout { CompanionLayout(characterScale: displayScale, bubbleScale: displayBubbleScale, musicAccessories: music.running) }
     func fitLayout(in area: CGSize) -> CGSize {
         let fitted = requestedLayout.fitted(in: area)
         if abs(displayScale - fitted.characterScale) > 0.0001 { displayScale = fitted.characterScale }
@@ -229,12 +237,14 @@ final class WidgetModel: ObservableObject {
             selectedCharacterID = CharacterRecord.builtin.id
             characterImage = thumbnails[CharacterRecord.builtin.id]
         }
+        characterVisibleRect = MusicCharacterBounds.visibleRect(characterImage)
     }
     func selectCharacter(_ record: CharacterRecord) {
         guard characters.contains(record) else { return }
         let image = record.isBuiltin ? characterThumbnails[record.id] : characterLibrary.image(for: record)
         guard let image else { settingsError = text(CharacterLibrary.LibraryError.missingImage.localizedDescription); return }
         selectedCharacterID = record.id; characterImage = image; settingsError = nil
+        characterVisibleRect = MusicCharacterBounds.visibleRect(image)
         savePreferences()
     }
     func importCharacter() {
@@ -488,7 +498,7 @@ final class WidgetModel: ObservableObject {
             "specialQuotes": specialQuotes, "bubbleTapAdvance": bubbleTapAdvance, "language": language.rawValue,
             "desktopTopmost": desktopTopmost, "soundOn": soundOn, "hideMenu": hideMenu, "taskCompletionBubble": completionEnabled,
             "bubbleScale": bubbleScale, "characterId": selectedCharacterID,
-            "autoQuoteEnabled": autoQuoteEnabled, "autoQuoteIntervalSeconds": autoQuoteIntervalSeconds]
+            "autoQuoteEnabled": autoQuoteEnabled, "autoQuoteIntervalSeconds": autoQuoteIntervalSeconds, "musicLights": musicLights]
         values.merge(current) { _, new in new }
         values["desktopLeft"] = desktopLeft; values["desktopBottom"] = desktopBottom
         try? writeJSON(values, to: file)

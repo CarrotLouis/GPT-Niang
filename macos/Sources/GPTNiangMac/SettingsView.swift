@@ -19,6 +19,7 @@ struct SettingsView: View {
             section2
             characterGallery
             section3
+            musicSection
             automaticQuotes
             section4
             section5
@@ -42,6 +43,7 @@ struct SettingsView: View {
         .onChange(of: model.bubbleScale) { _ in model.savePreferences() }
         .onChange(of: model.autoQuoteEnabled) { _ in model.savePreferences() }
         .onChange(of: model.autoQuoteIntervalSeconds) { _ in model.savePreferences() }
+        .onChange(of: model.musicLights) { _ in model.savePreferences() }
         .onChange(of: model.volume) { _ in model.audio.updateVolume(); model.savePreferences() }
         .onChange(of: model.colorMode) { _ in model.updateAppearance(); model.savePreferences() }
         .onChange(of: model.fullChance) { _ in model.updateAppearance(); model.savePreferences() }
@@ -170,6 +172,30 @@ struct SettingsView: View {
                 }.pickerStyle(.segmented).disabled(!model.autoQuoteEnabled)
                 Text(model.text("仅在挂件可见且空闲时计时，使用下方语录，显示约 5 秒。查看额度、操作角色或打开设置时暂停；恢复后重新计时。"))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }.padding(10)
+        }
+    }
+
+    private var musicSection: some View {
+        GroupBox(model.text("音乐律动")) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(model.text("跟随系统播放的音乐律动"), isOn: Binding(
+                    get: { model.music.enabled },set: { model.music.setEnabled($0) }))
+                Toggle(model.text("舞台灯光与镜面球"), isOn: $model.musicLights)
+                HStack {
+                    Text(model.text(model.music.status)).font(.caption).foregroundStyle(.secondary)
+                    if model.music.bpm > 0 { Text("\(model.music.bpm) BPM").font(.caption.monospacedDigit()) }
+                    Spacer()
+                    Button(model.text("重试音频连接")) { model.music.retry() }
+                }
+                Text(model.text("播放音乐后关闭设置即可看到动作；点击角色查看额度时暂停。支持拖动和松手回弹。关闭律动会回到原来的位置。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false,vertical: true)
+                Text(model.text("首次开启需要 macOS 的「系统音频录制」权限。不使用麦克风，不保存或上传音频；每次启动应用后按需开启。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false,vertical: true)
+                if let error = model.music.error { Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+                Button(model.text("打开系统音频权限设置")) {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") { NSWorkspace.shared.open(url) }
+                }
             }.padding(10)
         }
     }
