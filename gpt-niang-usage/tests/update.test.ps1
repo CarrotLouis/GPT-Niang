@@ -25,7 +25,11 @@ function Stop-WidgetSupervisorTask {$script:stops++}
 function Stop-WidgetGui {$script:stops++}
 function Wait-WidgetUpdateIdle {}
 function Assert-WidgetCandidatePackage {}
+# Transaction fixtures never execute a real CLI. Executable capability discovery
+# is covered by install-cli-compatibility.test.ps1 and the isolated integration test.
+function Resolve-WidgetInstallCodex([string]$LocalData,[string[]]$Candidates){return 'isolated-codex'}
 function Assert-WidgetPluginRegistration([string]$Codex,[string]$Version){
+  if($Codex-ne 'isolated-codex'){throw 'Transaction fixture selected an external Codex CLI.'}
   $catalog=Read-WidgetUpdateJson (Join-Path $testRoot 'catalog.json')
   if($catalog.version-ne $Version -or !$catalog.installed -or !$catalog.enabled){throw 'Isolated plugin registration mismatch.'}
 }
