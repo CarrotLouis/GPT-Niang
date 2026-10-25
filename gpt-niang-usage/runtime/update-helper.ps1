@@ -143,7 +143,8 @@ function Wait-WidgetUpdatedHealth($Journal) {
     if($status -and ([DateTime]::UtcNow-([DateTime]$status.at).ToUniversalTime()).TotalSeconds-lt 10 -and ([DateTime]$status.at).ToUniversalTime()-ge ([DateTime]$Journal.installStartedAt).ToUniversalTime()) {
       $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$status.pid) -ErrorAction Stop
       $expected='"'+(Join-Path (Get-WidgetUpdateAgentDir) 'update-agent.ps1')+'"'
-      if($process -and $process.Name-in @('powershell.exe','pwsh.exe') -and $process.CommandLine.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase)-ge 0){return}
+      $encoded=Get-WidgetAgentPowerShellArguments (Get-WidgetUpdateAgentDir)
+      if($process -and $process.Name-in @('powershell.exe','pwsh.exe') -and ($process.CommandLine.IndexOf($expected,[StringComparison]::OrdinalIgnoreCase)-ge 0 -or $process.CommandLine.IndexOf($encoded,[StringComparison]::Ordinal)-ge 0)){return}
     }
     Start-Sleep -Milliseconds 500
   }while([DateTime]::UtcNow-lt $deadline)

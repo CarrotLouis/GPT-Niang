@@ -5,7 +5,7 @@
     "type":  "module",
     "description":  "GPT娘额度挂件",
     "scripts":  {
-                    "test":  "node --test tests/*.test.mjs",
+                    "test":  "node --test --test-concurrency=1 tests/*.test.mjs",
                     "test:windows":  "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File tests/run-windows-tests.ps1"
                 },
     "engines":  {
