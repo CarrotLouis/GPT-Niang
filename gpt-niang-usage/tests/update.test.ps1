@@ -34,12 +34,12 @@ function Assert-WidgetPluginRegistration([string]$Codex,[string]$Version){
   if($catalog.version-ne $Version -or !$catalog.installed -or !$catalog.enabled){throw 'Isolated plugin registration mismatch.'}
 }
 function Get-CimInstance {
-  return [pscustomobject]@{Name='powershell.exe';CommandLine=('powershell.exe -File "'+(Join-Path $script:agent 'update-agent.ps1')+'"')}
+  return [pscustomobject]@{Name='powershell.exe';CreationDate=$script:fixtureProcessStartedAt;CommandLine=('powershell.exe -File "'+(Join-Path $script:agent 'update-agent.ps1')+'"')}
 }
 $script:healthValidator=(Get-Command Wait-WidgetUpdatedHealth).ScriptBlock
 function Wait-WidgetUpdatedHealth($Journal) {
   if($script:failureMode-eq 'health'){throw 'Simulated new supervisor health failure.'}
-  & $script:healthValidator $Journal
+  & $script:healthValidator $Journal -TimeoutMilliseconds 500
 }
 function Invoke-WidgetUpdateInstaller($Journal,[string]$Token) {
   $script:installerCalls++
@@ -48,7 +48,8 @@ function Invoke-WidgetUpdateInstaller($Journal,[string]$Token) {
   $config=Read-WidgetUpdateJson (Join-Path $Journal.appDir 'installation.json');$config.version=$manifest.version
   Write-WidgetSupervisorJson (Join-Path $Journal.appDir 'installation.json') $config
   Write-WidgetSupervisorJson (Join-Path $testRoot 'catalog.json') @{version=$manifest.version;installed=$true;enabled=$true}
-  Write-WidgetSupervisorJson (Join-Path $Journal.dataDir 'supervisor-status.json') @{pid=$PID;at=[DateTime]::UtcNow.ToString('o')}
+  $script:fixtureProcessStartedAt=[DateTime]::UtcNow
+  Write-WidgetSupervisorJson (Join-Path $Journal.dataDir 'supervisor-status.json') @{pid=$PID;processStartedAt=$script:fixtureProcessStartedAt.ToString('o');at=[DateTime]::UtcNow.ToString('o');paused=$false;widgetRunning=$false;visibleWindows=$(if($script:failureMode-eq 'gui'){1}else{0})}
 }
 $checks=0
 function Assert($Condition,[string]$Label){if(!$Condition){throw ('Assertion failed: '+$Label)};$script:checks++;Write-Output ('PASS '+$Label)}
@@ -132,6 +133,11 @@ try {
   $journal=New-Fixture 'failed-health';$script:failureMode='health'
   Assert-Throws {Invoke-WidgetUpdateTransaction $journal $script:agent $journal.token} 'backup is retained until the new supervisor passes health validation'
   Assert ($journal.phase-eq 'rolled-back' -and (Read-WidgetUpdateJson (Join-Path $journal.appDir 'installation.json')).version-eq '1.3.2') 'failed health validation restores the original version before cleanup'
+
+  $journal=New-Fixture 'failed-gui';$script:failureMode='gui'
+  Assert-Throws {Invoke-WidgetUpdateTransaction $journal $script:agent $journal.token} 'real health gate rejects a live supervisor whose visible widget never started'
+  Assert ($journal.phase-eq 'rolled-back' -and (Read-WidgetUpdateJson (Join-Path $journal.appDir 'installation.json')).version-eq '1.3.2') 'GUI startup failure restores the previous program before cleanup'
+  Assert ((Read-WidgetUpdateJson (Join-Path $journal.dataDir 'settings.json')).scale-eq 1.4) 'GUI failure rollback retains user preferences'
 
   $journal=New-Fixture 'interrupted-rename'
   Assert-WidgetUpdateTransaction $journal $script:agent

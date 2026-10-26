@@ -29,15 +29,16 @@ try{
  Reject {Assert-WidgetSupervisorTaskIdentity $script:entryTask $info} 'Elevated task accepted'
  $script:entryTask.Principal.RunLevel='Limited'
  function Get-CimInstance {param($ClassName,[string]$Filter)
-  if($Filter-eq ('ProcessId='+$PID)){return [pscustomobject]@{ProcessId=$PID;Name='powershell.exe';CommandLine=('powershell.exe '+(Get-WidgetAgentPowerShellArguments $script:entryAgent))}}
+  if($Filter-eq ('ProcessId='+$PID)){return [pscustomobject]@{ProcessId=$PID;Name='powershell.exe';CreationDate=$script:entryStarted;CommandLine=('powershell.exe '+(Get-WidgetAgentPowerShellArguments $script:entryAgent))}}
   return @()
  }
  function Get-ScheduledTask{return $script:entryTask}
  function Stop-ScheduledTask{throw 'Recovery entry attempted to stop its own task'}
  Stop-WidgetSupervisorTask $app;$checks++
  function Assert-WidgetPluginRegistration{}
- Write-WidgetSupervisorJson (Join-Path $data 'supervisor-status.json') @{pid=$PID;at=[DateTime]::UtcNow.ToString('o')}
- Wait-WidgetUpdatedHealth @{appDir=$app;dataDir=$data;version='1.3.5';installStartedAt=[DateTime]::UtcNow.AddSeconds(-2).ToString('o')};$checks++
+ $script:entryStarted=(Get-Process -Id $PID).StartTime.ToUniversalTime()
+ Write-WidgetSupervisorJson (Join-Path $data 'supervisor-status.json') @{pid=$PID;processStartedAt=$script:entryStarted.ToString('o');at=[DateTime]::UtcNow.ToString('o');paused=$false;widgetRunning=$false;visibleWindows=0}
+ Wait-WidgetUpdatedHealth @{appDir=$app;dataDir=$data;version='1.3.5';installStartedAt=$script:entryStarted.AddSeconds(-1).ToString('o')};$checks++
  Write-Output ('PASS: '+$checks+' direct task, independent startup, legacy migration, recovery and updater health assertions')
 }finally{
  $resolved=[IO.Path]::GetFullPath($root)

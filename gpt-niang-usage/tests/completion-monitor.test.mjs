@@ -74,3 +74,48 @@ test('scan stays within rollout folders and a callback failure does not stop oth
   monitor.scan(true);append(file,event('one'));append(file,event('two'));monitor.scan();assert.equal(callbacks,2);
   assert.equal(defaultCodexHome({CODEX_HOME:root}),path.resolve(root));
 }));
+
+test('deleted normal and subagent sessions expire, with bounded archive grace',()=>fixture(root=>{
+  const dir=path.join(root,'sessions');fs.mkdirSync(dir);
+  const monitor=new CompletionMonitor({codexHome:root,since:stamp});
+  for(let i=0;i<400;i++){const file=path.join(dir,i+'.jsonl');append(file,header(i%2?'subagent':'vscode'));}
+  const now=Date.now();monitor.scan(false,now);
+  assert.equal(monitor.tails.size,200);assert.equal(monitor.subagentSessions.size,200);
+  for(const name of fs.readdirSync(dir))fs.unlinkSync(path.join(dir,name));
+  monitor.scan(false,now+1000);assert.ok(monitor.tails.size+monitor.subagentSessions.size<=256);
+  monitor.scan(false,now+31000);assert.equal(monitor.tails.size,0);assert.equal(monitor.subagentSessions.size,0);
+}));
+
+test('a temporarily missing archived session preserves offset and incomplete UTF-8',()=>fixture(root=>{
+  const dir=path.join(root,'sessions'),archive=path.join(root,'archived_sessions');fs.mkdirSync(dir);fs.mkdirSync(archive);
+  const file=path.join(dir,'move.jsonl'),held=path.join(root,'in-transit.jsonl');append(file,header());
+  const found=[],monitor=new CompletionMonitor({codexHome:root,since:stamp,onNotification:e=>found.push(e)}),now=Date.now();
+  monitor.scan(true,now);append(file,event('one'));monitor.scan(false,now+1000);
+  const bytes=Buffer.from(JSON.stringify(event('中文轮次'))+'\n'),split=bytes.indexOf(Buffer.from('中'))+1;
+  fs.appendFileSync(file,bytes.subarray(0,split));monitor.scan(false,now+2000);
+  fs.renameSync(file,held);monitor.scan(false,now+3000);
+  const moved=path.join(archive,'move.jsonl');fs.renameSync(held,moved);fs.appendFileSync(moved,bytes.subarray(split));
+  monitor.scan(false,now+4000);assert.deepEqual(found.map(e=>e.turnId),['one','中文轮次']);
+}));
+
+test('a long-lived session receives appended completions even with an unchanged file timestamp',()=>fixture(root=>{
+  const dir=path.join(root,'sessions');fs.mkdirSync(dir);
+  const file=path.join(dir,'idle.jsonl'),child=path.join(dir,'child.jsonl');append(file,header());append(child,header('subagent'));
+  const found=[],monitor=new CompletionMonitor({codexHome:root,since:stamp,onNotification:e=>found.push(e)}),now=Date.now();
+  append(file,event('one'));monitor.scan(false,now);
+  const modified=fs.statSync(file).mtimeMs;
+  monitor.scan(false,now+301000);
+  append(file,event('two'));fs.utimesSync(file,modified/1000,modified/1000);
+  monitor.scan(false,now+303000);monitor.scan(false,now+304000);
+  assert.deepEqual(found.map(e=>e.turnId),['one','two']);
+  monitor.stop();assert.equal(monitor.tails.size+monitor.subagentSessions.size+monitor.seenTurns.size,0);
+}));
+
+test('reappearing sessions after missing-cache eviction do not replay recent endings',()=>fixture(root=>{
+  const dir=path.join(root,'sessions');fs.mkdirSync(dir);
+  const file=path.join(dir,'return.jsonl'),held=path.join(root,'held.jsonl');append(file,header());append(file,event('one'));
+  const found=[],monitor=new CompletionMonitor({codexHome:root,since:stamp,onNotification:e=>found.push(e)}),now=Date.now();
+  monitor.scan(false,now);fs.renameSync(file,held);monitor.scan(false,now+31000);assert.equal(monitor.tails.size,0);
+  fs.renameSync(held,file);append(file,event('two'));monitor.scan(false,now+32000);
+  assert.deepEqual(found.map(e=>e.turnId),['one','two']);
+}));

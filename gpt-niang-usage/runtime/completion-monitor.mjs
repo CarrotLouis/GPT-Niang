@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 const NORMAL_ENDINGS=new Set(['task_complete','turn_complete']);
 const MAX_READ_BYTES=4*1024*1024,MAX_LINE_CHARACTERS=1024*1024,MAX_SEEN_TURNS=4096;
 const RESUME_GRACE_MS=5000,RESUME_STATE_MAX_AGE_MS=5*60*1000;
+const MISSING_SESSION_GRACE_MS=30000,MAX_MISSING_SESSIONS=256;
 
 // A crash can happen between a turn finishing and the monitor reading it.
 // Remembering the last scan time (and the newest emitted completion) lets the
@@ -112,7 +113,7 @@ export class CompletionMonitor {
   constructor({codexHome=defaultCodexHome(),intervalMs=1000,onNotification=()=>{},since=Date.now(),stateFile=null}={}){
     this.codexHome=codexHome;this.intervalMs=intervalMs;this.onNotification=onNotification;this.since=since;
     this.stateFile=stateFile;this.resume=false;this.lastStateSave=0;this.lastEnded=0;
-    this.tails=new Map();this.subagentSessions=new Set();this.timer=null;
+    this.tails=new Map();this.subagentSessions=new Map();this.seenTurns=new Set();this.timer=null;
   }
   start(){
     if(this.timer)return;
@@ -134,29 +135,49 @@ export class CompletionMonitor {
     if(!force && now-this.lastStateSave<5000)return;
     this.lastStateSave=now;saveMonitorState(this.stateFile,now,this.lastEnded);
   }
-  scan(baseline=false){
-    const files=listRolloutFiles(this.codexHome);
+  scan(baseline=false,now=Date.now()){
+    const files=listRolloutFiles(this.codexHome),present=new Set();
     for(const file of files){
-      const sessionId=path.basename(file);if(this.subagentSessions.has(sessionId))continue;
+      const sessionId=path.basename(file);present.add(sessionId);
+      const subagent=this.subagentSessions.get(sessionId);
+      if(subagent){subagent.lastSeenAt=now;continue;}
       let tail=this.tails.get(sessionId);
       if(!tail){
         const header=readSessionHeader(file);if(header===null)continue;
-        if(header.subagent){this.subagentSessions.add(sessionId);continue;}
+        if(header.subagent){this.subagentSessions.set(sessionId,{lastSeenAt:now});continue;}
         // During crash recovery, files touched inside the grace window are read
         // from their start and filtered by `since` instead of being skipped.
         let fileBaseline=baseline;
         if(fileBaseline && this.resume){try{if(fs.statSync(file).mtimeMs>=this.since)fileBaseline=false;}catch{}}
         try{tail=new CompletionRolloutTail(file,{sessionId,baseline:fileBaseline,since:this.since});}catch{continue;}
-        this.tails.set(sessionId,tail);if(fileBaseline)continue;
+        tail.lastSeenAt=now;this.tails.set(sessionId,tail);if(fileBaseline)continue;
       }else{tail.file=file;}
+      tail.lastSeenAt=now;
       for(const event of tail.update()){
+        const key=event.sessionId+'\0'+event.turnId;
+        if(this.seenTurns.has(key))continue;
+        this.seenTurns.add(key);if(this.seenTurns.size>MAX_SEEN_TURNS)this.seenTurns.delete(this.seenTurns.values().next().value);
         if(Number.isFinite(event.endedAt) && event.endedAt>this.lastEnded)this.lastEnded=event.endedAt;
         try{this.onNotification(event);}catch{}
       }
     }
+    this.pruneSessions(present,now);
     this.persistState();
   }
-  stop(){if(this.timer)clearInterval(this.timer);this.timer=null;}
+  pruneSessions(present,now){
+    const missing=[];
+    for(const cache of [this.tails,this.subagentSessions])for(const [id,entry] of cache){
+      if(!present.has(id)){
+        if(now-entry.lastSeenAt>=MISSING_SESSION_GRACE_MS)cache.delete(id);
+        else missing.push({cache,id,at:entry.lastSeenAt});
+      }
+    }
+    // Allow an archive move or a brief directory outage, without retaining an
+    // unbounded number of deleted sessions even during that grace period.
+    missing.sort((a,b)=>a.at-b.at);
+    for(let i=0;i<missing.length-MAX_MISSING_SESSIONS;i++)missing[i].cache.delete(missing[i].id);
+  }
+  stop(){if(this.timer)clearInterval(this.timer);this.timer=null;this.tails.clear();this.subagentSessions.clear();this.seenTurns.clear();}
 }
 
 function run(){

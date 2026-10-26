@@ -11,21 +11,31 @@ function Assert-WidgetNoReparsePoint([string]$Directory) {
   }
 }
 function Invoke-WidgetCodexReadOnly {
-  param([string]$Codex,[string]$Arguments,[int]$TimeoutMilliseconds=8000)
+  param([string]$Codex,[string]$Arguments,[ValidateRange(1,2147483647)][int]$TimeoutMilliseconds=8000)
   $start=[Diagnostics.ProcessStartInfo]::new()
   $start.FileName=$Codex;$start.Arguments=$Arguments;$start.UseShellExecute=$false;$start.CreateNoWindow=$true
   $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
   $start.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$start.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
   $process=[Diagnostics.Process]::new();$process.StartInfo=$start
+  $stdout=$null;$stderr=$null
+  $watch=[Diagnostics.Stopwatch]::StartNew()
   try{
     if(!$process.Start()){throw 'Cannot start Codex.'}
     $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
-    if(!$process.WaitForExit($TimeoutMilliseconds)){
-      $process.Kill();$null=$process.WaitForExit(2000)
+    $remaining=[Math]::Max(0,$TimeoutMilliseconds-[int]$watch.ElapsedMilliseconds)
+    $exited=$process.WaitForExit($remaining)
+    $remaining=[Math]::Max(0,$TimeoutMilliseconds-[int]$watch.ElapsedMilliseconds)
+    # Descendants can inherit the pipes after the CLI itself exits. Both reads
+    # must finish within the same deadline as the process, not an extra timeout.
+    if(!$exited -or ![Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdout,$stderr),$remaining)){
+      if(!$process.HasExited){$process.Kill()}
       throw ('Codex read-only command timed out: '+$Arguments)
     }
     return [pscustomobject]@{exitCode=$process.ExitCode;output=$stdout.Result;error=$stderr.Result}
-  }finally{$process.Dispose()}
+  }finally{
+    try{if($stdout){$process.StandardOutput.Close()}}
+    finally{try{if($stderr){$process.StandardError.Close()}}finally{$process.Dispose()}}
+  }
 }
 function Test-WidgetCodexCapabilities([string]$Path){
   if(!(Test-Path -LiteralPath $Path -PathType Leaf)){return $false}
