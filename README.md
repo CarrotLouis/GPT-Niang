@@ -1,6 +1,6 @@
 > 本分支包含已完成 Windows 本机验证的 2026-10-25 修复候选，尚未发布为新的正式版。公开 Release 仍为 1.3.5；已有 1.3.5 不会自动获取同版本候选。完整记录见 [本机修订记录](本机修订-20261025.md)。
 
-> Windows 稳定性修复使用独立修订标识 `20261027-stability-repair`，基础版本仍为 1.3.5。[下载修复预发布](https://github.com/T7moris/GPT-Niang/releases/tag/v1.3.5-windows-stability-20261027)；已有 1.3.5 不会自动更新到同版本预发布，需要手动安装。作者本机验证的是 10 月 26 日修订，10 月 27 日新增修复经过隔离回归。
+> Windows 稳定性修复使用独立修订标识 `20261027-stability-repair`，基础版本仍为 1.3.5。发布状态请看 [GitHub 发布页](https://github.com/T7moris/GPT-Niang/releases)；已有 1.3.5 不会自动更新到同版本预发布，需要手动安装。作者本机验证的是 10 月 26 日修订，10 月 27 日新增修复经过隔离回归。
 
 # GPT-Niang（GPT 娘）
 
