@@ -104,13 +104,24 @@ function Copy-WidgetUnmanagedRootItems($Journal,[switch]$EmbeddedData) {
   # Legacy installs often share their outer folder with screenshots and downloads.
   $managed=@('.agents','gpt-niang-usage','.gitignore','LICENSE','README.md','更新记录.md','SHA256SUMS.txt',
     '安装GPT娘.cmd','打开GPT娘.cmd','停用GPT娘.cmd','检测套餐.cmd')
+  # PowerShell 5.1 may decode UTF-8 scripts using a non-Chinese system code page.
+  $historicalNote=([string][char]0x672C+[char]0x673A+[char]0x4FEE+[char]0x8BA2+'-20261025.md')
+  $sharedReleaseFiles=@('.gitattributes',$historicalNote)
   foreach($item in @(Get-ChildItem -LiteralPath $Journal.root -Force)){
     if($item.Name-in $managed){continue}
     $containsData=$Journal.dataDir-ieq $item.FullName -or $Journal.dataDir.StartsWith($item.FullName+'\',[StringComparison]::OrdinalIgnoreCase)
     if($EmbeddedData -and !$containsData){continue}
     $target=Join-Path $Journal.nextRoot $item.Name
     Assert-WidgetUpdateChildPath $target $Journal.nextRoot
-    if(Test-Path -LiteralPath $target){throw ('Candidate overlaps a personal file or directory: '+$item.Name)}
+    if(Test-Path -LiteralPath $target){
+      # Only known release files with identical contents may overlap. A user
+      # modification, directory, or reparse point still blocks replacement.
+      Assert-WidgetNoReparsePoint $item.FullName
+      Assert-WidgetNoReparsePoint $target
+      $shared=!$containsData -and !$item.PSIsContainer -and $item.Name-in $sharedReleaseFiles -and (Test-Path -LiteralPath $target -PathType Leaf)
+      if($shared -and (Get-WidgetFileHash $item.FullName)-eq (Get-WidgetFileHash $target)){continue}
+      throw ('Candidate overlaps a personal file or directory: '+$item.Name)
+    }
     if(!$EmbeddedData -and $containsData){continue}
     Assert-WidgetNoReparsePoint $item.FullName
     if($item.PSIsContainer){Copy-WidgetVerifiedTree $item.FullName $target}

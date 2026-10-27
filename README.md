@@ -1,6 +1,6 @@
 > 本分支包含已完成 Windows 本机验证的 2026-10-25 修复候选，尚未发布为新的正式版。公开 Release 仍为 1.3.5；已有 1.3.5 不会自动获取同版本候选。完整记录见 [本机修订记录](本机修订-20261025.md)。
 
-> 2026-10-26 稳定性修复使用独立修订标识 `20261026-stability-repair`，基础版本仍为 1.3.5。已完成本机替换，挂件、监督器与新版额度查询验收通过；源码尚未上传 GitHub，不包含在此前的 2026-10-25 预发布安装包中。
+> Windows 稳定性修复使用独立修订标识 `20261027-stability-repair`，基础版本仍为 1.3.5。[下载修复预发布](https://github.com/T7moris/GPT-Niang/releases/tag/v1.3.5-windows-stability-20261027)；已有 1.3.5 不会自动更新到同版本预发布，需要手动安装。作者本机验证的是 10 月 26 日修订，10 月 27 日新增修复经过隔离回归。
 
 # GPT-Niang（GPT 娘）
 
@@ -14,14 +14,15 @@
 
 <img src="gpt-niang-usage/assets/gpt-dragon-niang-bust.png" alt="无嘴巴的白发龙娘半身形象" width="240">
 
-## 2026-10-26 稳定性修复候选
+## Windows 稳定性修复候选
 
 - 更新验收会确认新监督器的身份，以及应当显示的挂件已经初始化；启动失败会回退。主窗口隐藏和用户主动暂停仍支持正常更新。
-- Windows 无界面额度查询会核对更新进程的创建时间，避免旧标记遇到 PID 复用后一直显示“正在更新”；正常更新期间继续阻止额度 worker 启动。
-- 完成提醒会回收已经消失的会话缓存：归档迁移保留 30 秒宽限，宽限内最多保留 256 项。仍存在的日志继续尾读，已发提醒保留有上限的去重记录，扫描频率保持每秒一次。
+- Windows 无界面额度查询会核对更新进程的创建时间，能够读取时可识别 PID 复用导致的旧标记；正常更新期间继续阻止额度 worker 启动。若系统拒绝读取进程创建时间，会保守地继续等待，避免与真实更新并发。
+- 完成提醒会回收已经消失的会话缓存：归档迁移保留 30 秒宽限，宽限内最多保留 256 项；最多保存 4096 个轻量续读记录，减少日志恢复后的重复提醒。仍存在的日志继续尾读，扫描频率保持每秒一次。
 - CLI 进程退出和输出读取共享同一超时，避免子进程持续占用输出管道时拖住安装或升级。
+- 升级时识别内容未变的两份已发布根目录文件，避免误报文件碰撞；文件被用户修改、同名目录或链接仍会阻止覆盖。
 
-隔离回归、安装事务及本机替换检查均已通过，个人设置与语录文件校验保持一致。已打开聊天的插件连接需要重新加载后使用新代码；本机挂件和新启动的额度连接已使用新修订。此结果不代表已完成新的 24 小时内存实机验收，macOS 原生界面与物理多屏未在本轮复测。
+10 月 26 日修订的隔离回归、安装事务及作者本机替换检查通过，个人设置与语录文件校验保持一致；10 月 27 日新增修复以隔离测试验收，尚未替换作者本机。已打开聊天的插件连接需要重新加载后使用新代码。当失踪会话超过续读记录上限，或日志被截断重写且伴随时间异常时，提醒仍可能重复或遗漏。此结果不代表已完成新的 24 小时内存实机验收，macOS 原生界面与物理多屏未在本轮复测。
 
 ## 能做什么
 
@@ -320,7 +321,7 @@ Windows 界面使用 PowerShell / WPF，Mac 界面使用 SwiftUI / AppKit，额�
 | [@JCyxMio](https://github.com/JCyxMio) | [PR #12](https://github.com/T7moris/GPT-Niang/pull/12)：提出 Windows 多屏／混合 DPI 修复、Business `individualLimit` 个人额度显示，以及套餐标题、刷新按钮布局和命中修复；提供重复尺寸、额度解析及 WPF 验证。 | 方案整合于 1.3.4；DPI 定位以 PR #20 为准，并补齐 macOS 个人额度解码与显示 |
 | [@maolilup](https://github.com/maolilup) | [PR #13](https://github.com/T7moris/GPT-Niang/pull/13)：针对 [Issue #2](https://github.com/T7moris/GPT-Niang/issues/2)，提出使用固定设计宽高计算跟随／拖动尺寸以避免 DPI 尺寸漂移，并提供不同设计画布、缩放与目标 DPI 下的连续原生尺寸回归。 | 固定设计尺寸与回归已适配到 1.3.4；原生调用保持只移动 |
 | [@moonlight54321](https://github.com/moonlight54321) | [Issue #66](https://github.com/T7moris/GPT-Niang/issues/66)：桌面初始化时机分析及推迟定位补丁。 | 本分支参考方案加入连接检查、显示后重放与回归 |
-| [@NoelCornel](https://github.com/NoelCornel) | [Issue #49](https://github.com/T7moris/GPT-Niang/issues/49)：长时大提交量的有界复现、额度刷新对照及修复建议。 | 正式版已包含额度选择修复；本分支完整刷新 10,000 次稳定，24 小时采样验收进行中，未声明长期验收完成 |
+| [@NoelCornel](https://github.com/NoelCornel) | [Issue #49](https://github.com/T7moris/GPT-Niang/issues/49)：长时大提交量的有界复现、额度刷新对照及修复建议。 | 正式版已包含额度选择修复；本分支完整刷新 10,000 次稳定。24 小时采样已停止且样本不足，未完成长期验收 |
 | [@Rhodoeos](https://github.com/Rhodoeos) | [PR #63](https://github.com/T7moris/GPT-Niang/pull/63)：缩小宿主后的角色定位、完成提醒越界及负偏移保存；[PR #62](https://github.com/T7moris/GPT-Niang/pull/62)：可选角色主题色。 | #63 原提交已整合进本分支并完成 Windows 回归；#62 保持独立评审，两者测试入口的合并冲突已记录 |
 | [@meaqua9420](https://github.com/meaqua9420) | [PR #3](https://github.com/T7moris/GPT-Niang/pull/3)：SwiftUI／AppKit 原生 macOS 挂件、原有气泡／动画／配色／音效移植、窗口跟随与原生点击设置、菜单栏和可选登录启动；新增只读本地聊天速度面板、Mac CLI 与 worker 锁支持、应用构建及双平台 CI。 | 已合并 |
 | [@ShiroasabaMio](https://github.com/ShiroasabaMio) | [Issue #2](https://github.com/T7moris/GPT-Niang/issues/2)：报告 v1.2.3 跨不同 DPI 显示器移动时挂件放大、跳动与错位，提供 120／144 DPI 复现、尺寸反馈循环分析、固定设计尺寸与统一 DPI 上下文建议及本机修复结果。 | 问题报告保持开放；PR #20 已合入拖动修复，跨屏场景继续验证，其他方案见 PR #12／#13 |
