@@ -13,19 +13,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Repeat the unchanged recovery assertions and capture process state on failure
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run the same Node tests that precede Swift in the original check
+        working-directory: gpt-niang-usage
+        run: npm test
+      - name: Repeat the full Swift suite and capture recovery process state on failure
         shell: bash
         run: |
           failures=0
-          for attempt in 1 2 3 4 5 6 7 8; do
-            echo "::group::Recovery attempt $attempt"
-            if swift test --package-path macos --filter WorkerRecoveryTests; then
-              echo "Recovery attempt $attempt passed"
+          for attempt in 1 2 3 4; do
+            echo "::group::Full Swift attempt $attempt"
+            if swift test --package-path macos; then
+              echo "Full Swift attempt $attempt passed"
             else
               failures=$((failures + 1))
-              echo "Recovery attempt $attempt failed"
+              echo "Full Swift attempt $attempt failed"
             fi
             echo "::endgroup::"
           done
-          echo "Recovery attempts failed: $failures of 8"
+          echo "Full Swift attempts failed: $failures of 4"
           test "$failures" -eq 0
