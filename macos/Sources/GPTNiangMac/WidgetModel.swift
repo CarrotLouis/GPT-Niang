@@ -73,6 +73,13 @@ final class WidgetModel: ObservableObject {
     private var initialStopRequest: WorkerStopRequest?
     private var workerHandoff: (pid: Int32, token: String, legacyRequest: WorkerStopRequest?)?
     var workerRunning: Bool { worker?.isRunning == true }
+#if DEBUG
+    // Temporary diagnostic branch only; does not alter the recovery behavior.
+    var recoveryDiagnostic: String {
+        "pid=\(worker?.processIdentifier ?? -1) running=\(worker?.isRunning == true) pending=\(workerRecoveryPending) available=\(workerRecoveryAvailable) reported=\(workerReportedHeartbeat) lastCheck=\(String(describing: lastWorkerCheck)) unhealthySince=\(String(describing: workerUnhealthySince)) lastStart=\(lastWorkerStart)"
+    }
+    var recoveryDiagnosticPID: Int32 { worker?.processIdentifier ?? -1 }
+#endif
     var updateIdle: Bool { updateIsIdle() }
     func updateIsIdle(now: Date = Date(), isAlive: (Int32) -> Bool = { kill($0, 0) == 0 || errno == EPERM }) -> Bool {
         guard workerHandoff == nil, !workerRecoveryPending, !refreshing, !interactionActive, !audio.busy else { return false }

@@ -25,7 +25,11 @@ final class WorkerRecoveryTests: XCTestCase {
         let now = ProcessInfo.processInfo.systemUptime
         model.tick(now: now)
         let pid = try await self.childPID(root)
-        try await body(root, model, pid, now)
+        do { try await body(root, model, pid, now) }
+        catch {
+            print("RECOVERY_DIAG bodyError test=\(self.name) fixturePID=\(pid) \(model.recoveryDiagnostic) error=\(error)")
+            throw error
+        }
     }
     private func childPID(_ root: URL, excluding: Int32? = nil) async throws -> Int32 {
         for _ in 0..<200 {
@@ -40,6 +44,19 @@ final class WorkerRecoveryTests: XCTestCase {
             if !model.workerRunning { return }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
+        let pid = model.recoveryDiagnosticPID
+        let alive = pid > 0 ? kill(pid, 0) : -1
+        let errorNumber = errno
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", String(pid), "-o", "pid=,ppid=,stat=,comm="]
+        process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        var ps = "unavailable"
+        if (try? process.run()) != nil {
+            process.waitUntilExit()
+            ps = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "invalid"
+        }
+        print("RECOVERY_DIAG timeout test=\(self.name) \(model.recoveryDiagnostic) kill0=\(alive) errno=\(errorNumber) ps=\(ps.trimmingCharacters(in: .whitespacesAndNewlines))")
         XCTFail("Owned fixture worker did not exit after the recovery request")
     }
     private func attempts(_ root: URL) -> Int { (try? Data(contentsOf: root.appendingPathComponent("attempts")).count) ?? 0 }
