@@ -913,7 +913,10 @@ function Ensure-QuotaWorker([long]$now){
   try{
     $health=Get-Content -LiteralPath (Join-Path $script:dataDir 'worker-status.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $owner=Get-Content -LiteralPath (Join-Path $script:dataDir 'worker.lock') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if($health.token -and $health.token-eq $owner.token -and $health.pid-eq $owner.pid -and $now-[long]$health.at-ge 0 -and $now-[long]$health.at-lt 5000){
+    # A heartbeat written after the tick started is still current. Read the
+    # clock after the record so it is not mistaken for a future heartbeat.
+    $heartbeatNow=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    if($health.token -and $health.token-eq $owner.token -and $health.pid-eq $owner.pid -and $heartbeatNow-[long]$health.at-ge 0 -and $heartbeatNow-[long]$health.at-lt 5000){
       $workerProcess=Get-Process -Id ([int]$health.pid) -ErrorAction Stop
       try{$healthy=$workerProcess.Path-eq $script:config.nodePath -and $workerProcess.StartTime.ToUniversalTime()-le [DateTimeOffset]::FromUnixTimeMilliseconds([long]$health.startedAt).UtcDateTime}
       finally{$workerProcess.Dispose()}
