@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "baseVersion": "1.3.5",
+  "upstreamTag": "v1.3.5-windows-stability-20261028",
+  "resetReminderVersion": "1.0.0",
+  "protectFromUpstreamOverwrite": true,
+  "fork": "https://github.com/CarrotLouis/GPT-Niang"
+}

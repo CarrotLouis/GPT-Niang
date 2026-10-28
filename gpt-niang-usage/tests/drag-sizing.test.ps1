@@ -1,4 +1,4 @@
-param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
+﻿param([string]$TestRoot=$PSScriptRoot,[string]$WidgetSource)
 $ErrorActionPreference='Stop'
 if(!$WidgetSource){$WidgetSource=Join-Path (Split-Path $TestRoot -Parent) 'widget.ps1'}
 . (Join-Path (Split-Path $WidgetSource -Parent) 'runtime\quotes.ps1')
@@ -55,6 +55,7 @@ $validFrame=$ast.Find({param($n)$n-is [Management.Automation.Language.FunctionDe
 $script:designWidth=378;$script:designHeight=378
 function Tick-Scene {}
 function Tick-WidgetUpdater {}
+function Tick-WidgetResetReminder {}
 function Ensure-QuotaWorker {}
 function Test-WidgetHostReady {return $true}
 function Set-WidgetAboveHost {}

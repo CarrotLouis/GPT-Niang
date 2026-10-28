@@ -115,6 +115,7 @@ function Initialize-WidgetSettingsMenu {
 '@)
   $script:settingsMenuUi.Bubble=Add-SettingsAction '查看额度' {if(!$script:collapsed -and $script:bubbleMode-eq 'quota'){Hide-Quota}else{Show-Quota}} -ReturnItem
   Add-SettingsAction '刷新额度' {Request-Refresh}
+  Add-SettingsAction '额度重置提醒' {Open-WidgetResetPanel} -Description 'Tibo 公告与已核实的全局重置'
   $script:settingsMenuUi.Quote=Add-SettingsAction '换一句台词' {Show-Quote} -ReturnItem
   Add-SettingsDivider
   $script:settingsMenuUi.Character=Add-SettingsAction '更换形象' {Open-WidgetCharacterGallery} -ReturnItem

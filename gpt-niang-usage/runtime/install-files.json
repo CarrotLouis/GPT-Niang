@@ -56,5 +56,10 @@
   ".codex-plugin/plugin.json",
   "package.json",
   "Install.ps1",
-  "Uninstall.ps1"
+  "Uninstall.ps1",
+  "runtime/system-proxy.mjs",
+  "runtime/reset-reminder.ps1",
+  "runtime/reset-reminder.mjs",
+  "runtime/open-reset-reminder.ps1",
+  "local-customization.json"
 ]

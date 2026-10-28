@@ -1,0 +1,26 @@
+{
+  "source": "https://codex-reset.com/",
+  "sourceLabel": "Data: codex-reset.com（第三方）",
+  "sourceUpdatedAt": "2026-10-14T09:19:24.198Z",
+  "stale": false,
+  "lastResetAt": "2026-10-13T05:03:51.000Z",
+  "lastResetBeijing": "2026-10-13 13:03 北京时间",
+  "event": {
+    "id": "2109812360596865224",
+    "at": "2026-10-13T05:03:51.000Z",
+    "summary": "28 天“发布或重置”系列第 8 天：承诺“PST 当天结束前”到账的全局重置，我们的检测在 05:03 UTC 测到生效，Tibo 随后确认——“It’s done.”",
+    "url": "https://x.com/thsottiaux/status/2109812360596865224"
+  },
+  "plan": null,
+  "schema": 1,
+  "ok": true,
+  "error": null,
+  "initialized": true,
+  "checkedAt": 1791969614931,
+  "attemptedAt": 1791969614931,
+  "nextCheckAt": 1791969914931,
+  "nextAllowedAt": 1791969674931,
+  "seenResetAt": "2026-10-13T05:03:51.000Z",
+  "seenPlans": [],
+  "notifications": []
+}

@@ -30,6 +30,8 @@ function Update-WidgetUpdateMenu {
   if(!$script:settingsMenuUi.UpdateVersion){return}
   $script:settingsMenuUi.UpdateVersion.Header='当前版本：'+$script:config.version+$(if($script:config.localBuild){' · 本机修订 '+$script:config.localBuild})
   $script:settingsMenuUi.AutoUpdate.IsChecked=$script:autoUpdate
+  $custom=if($script:appDir){Read-WidgetUpdateJson (Join-Path $script:appDir 'local-customization.json')}else{$null}
+  if($custom.protectFromUpstreamOverwrite){$script:settingsMenuUi.AutoUpdate.Header='自动检查官方更新（保留定制）'}
   $state=Read-WidgetUpdateJson (Join-Path $script:dataDir 'update-status.json')
   $label=switch($state.phase){
     'checking' {'正在检查正式版…'}
@@ -42,6 +44,7 @@ function Update-WidgetUpdateMenu {
     'source' {'源码目录请使用 Git 更新'}
     'rate-limited' {'GitHub 限流，稍后再检查'}
     'current' {'已是最新正式版'}
+    'available' {'有新版 '+$state.version+'；需整合本地定制后更新'}
     'cancelled' {'自动更新已关闭'}
     default {'自动检查正式版，每 24 小时一次'}
   }

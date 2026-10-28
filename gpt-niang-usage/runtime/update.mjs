@@ -6,6 +6,7 @@ import {inflateRawSync} from 'node:zlib';
 import {spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {atomicJson} from './usage.mjs';
+import {proxyHttpsGet} from './system-proxy.mjs';
 
 export const DAY = 86400000;
 export const RELEASE_API = 'https://api.github.com/repos/T7moris/GPT-Niang/releases/latest';
@@ -54,8 +55,8 @@ export function allowedUrl(value,{api=false}={}) {
   return url;
 }
 
-// No token, cookie, proxy credentials or login configuration is read here.
-export async function download(url,{limit=MAX_ZIP,api=false,request=https.get,onProgress=()=>{},redirects=0}={}) {
+// No GitHub/OpenAI token, cookie or login configuration is read here.
+export async function download(url,{limit=MAX_ZIP,api=false,request=proxyHttpsGet,onProgress=()=>{},redirects=0,attempt=0}={}) {
   allowedUrl(url,{api});
   if(redirects>5)throw new Error('Too many update redirects');
   return new Promise((resolve,reject)=>{
@@ -65,7 +66,7 @@ export async function download(url,{limit=MAX_ZIP,api=false,request=https.get,on
         response.resume();
         if(api){reject(new Error('Unexpected API redirect'));return;}
         try{const next=new URL(response.headers.location,url).href;
-          download(next,{limit,request,onProgress,redirects:redirects+1}).then(resolve,reject);
+          download(next,{limit,request,onProgress,redirects:redirects+1,attempt}).then(resolve,reject);
         }catch(error){reject(error);}return;
       }
       if(status!==200) {
@@ -93,6 +94,11 @@ export async function download(url,{limit=MAX_ZIP,api=false,request=https.get,on
     });
     req.on('error',reject);
     req.setTimeout(30000,()=>req.destroy(new Error('Update download timed out')));
+  }).catch(async error=>{
+    if(attempt<1 && ['ECONNRESET','ECONNREFUSED','ETIMEDOUT','EHOSTUNREACH','ENETUNREACH','EPIPE','EAI_AGAIN'].includes(error.code)){
+      await pause(500);return download(url,{limit,api,request,onProgress,redirects,attempt:attempt+1});
+    }
+    throw error;
   });
 }
 export function selectRelease(release,currentVersion) {
@@ -301,6 +307,9 @@ async function performUpdate(config,{mode='manual',agentDir=config.updateAgent??
     const release=JSON.parse((await fetchBytes(RELEASE_API,{api:true,limit:1024*1024})).toString('utf8'));
     const selected=selectRelease(release,config.version);
     if(!selected){report({phase:'current',message:'已是最新正式版。'});return;}
+    if(read(path.join(config.appDir,'local-customization.json'))?.protectFromUpstreamOverwrite){
+      report({phase:'available',version:selected.version,message:'有新版正式版；本地定制功能需要重新整合，暂不自动覆盖。'});return;
+    }
     report({phase:'downloading',version:selected.version,message:'正在下载更新…',bytes:0});
     const sums=await fetchBytes(selected.sums.browser_download_url,{limit:1024*1024});
     verifyAssetDigest(sums,selected.sums);
@@ -321,7 +330,8 @@ async function performUpdate(config,{mode='manual',agentDir=config.updateAgent??
     await launch(journal,lock.owner.token);
   } catch(error) {
     const finalJournal=read(path.join(agentDir,'update-transaction.json'));
-    report({phase:finalJournal?.token===lock.owner.token && finalJournal.phase==='rolled-back'?'rolled-back':'failed',message:error.message,nextCheckAt:Math.max(state.nextCheckAt??0,Date.now()+(error.retryAfterMs??DAY)),retryAfterAt:error.retryAfterMs?Date.now()+error.retryAfterMs:0});
+    const transient=['ECONNRESET','ECONNREFUSED','ETIMEDOUT','EHOSTUNREACH','ENETUNREACH','EPIPE','EAI_AGAIN'].includes(error.code);
+    report({phase:finalJournal?.token===lock.owner.token && finalJournal.phase==='rolled-back'?'rolled-back':'failed',message:error.message,nextCheckAt:transient?Date.now()+15*60_000:Math.max(state.nextCheckAt??0,Date.now()+(error.retryAfterMs??DAY)),retryAfterAt:error.retryAfterMs?Date.now()+error.retryAfterMs:0});
   } finally {
     try {
       if(jobDir){

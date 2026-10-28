@@ -11,6 +11,7 @@ $null=New-Item -ItemType Directory -Path $script:dataDir -Force
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\ui-settings.ps1'),[Text.Encoding]::UTF8)))
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\characters.ps1'),[Text.Encoding]::UTF8)))
 . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\character-gallery.ps1'),[Text.Encoding]::UTF8)))
+. ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $script:appDir 'runtime\reset-reminder.ps1'),[Text.Encoding]::UTF8)))
 . (Join-Path $script:appDir 'runtime\audio.ps1')
 . (Join-Path $script:appDir 'runtime\host-layer.ps1')
 . (Join-Path $script:appDir 'runtime\host-follow.ps1')
@@ -456,6 +457,7 @@ function Read-DisplayRequest {
         elseif($request.mode-eq 'menu' -and $script:window.IsVisible){Open-WidgetMenu}
         elseif($request.mode-eq 'characters' -and $script:window.IsVisible){Open-WidgetCharacterGallery}
         elseif($request.mode-eq 'close-menu'){$script:context.IsOpen=$false}
+        elseif($request.mode-eq 'reset-reminder'){Open-WidgetResetPanel}
         elseif($request.mode-eq 'music-on'){Set-WidgetMusicEnabled $true}
         elseif($request.mode-eq 'music-off'){Set-WidgetMusicEnabled $false}
       }
@@ -799,6 +801,7 @@ $script:messageHook=[Windows.Interop.HwndSourceHook]{param($hwnd,$msg,$w,$l,[ref
 }
 $source.AddHook($script:messageHook)
 Initialize-WidgetUpdater
+Initialize-WidgetResetReminder
 Initialize-WidgetSettingsMenu
 $script:ui.Refresh.Add_Click({param($sender,$event)Request-Refresh;Restart-SceneTtl;$script:ui.Status.Text='正在刷新额度…';$event.Handled=$true})
 $script:ui.MenuButton.Add_Click({Open-WidgetMenu})
@@ -938,6 +941,7 @@ function Ensure-QuotaWorker([long]$now){
   catch{[IO.File]::WriteAllText((Join-Path $script:dataDir 'worker-error.txt'),$_.Exception.Message,[Text.UTF8Encoding]::new($false))}
 }
 function Stop-WidgetRuntime {
+  try{Stop-WidgetResetReminder}catch{}
   if($script:runtimeClosed){return};$script:runtimeClosed=$true
   try{if($script:occlusionRecovery){$script:occlusionRecovery.Dispose()}}catch{}
   try{Stop-WidgetMusic}catch{}
@@ -966,6 +970,7 @@ function Tick-Widget {
   $now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   Tick-Scene $now
   Tick-WidgetUpdater $now
+  Tick-WidgetResetReminder $now
   if($now-$script:lastPresence-ge 1000 -and (Test-Path -LiteralPath (Join-Path $script:dataDir 'stop.flag'))){$script:window.Close();return}
   Ensure-QuotaWorker $now
   if($script:completionTemporary){
