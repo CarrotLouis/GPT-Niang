@@ -9,8 +9,22 @@ final class WorkerRecoveryTests: XCTestCase {
         let manifest = root.appendingPathComponent("Backend/.codex-plugin/plugin.json")
         try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"version":"1.3.4"}"#.utf8).write(to: manifest)
+        // Recovery tests have no bundled audio. Keep model teardown independent
+        // of NSSound loading and the availability of a CI audio device.
+        try Data(#"{"version":1,"mode":"custom"}"#.utf8).write(to: root.appendingPathComponent("audio-preferences.json"))
         let executable = root.appendingPathComponent("node-fixture")
-        let script = "#!/bin/sh\nprintf x >> \"$(dirname \"$0\")/attempts\"\nprintf '%s' \"$$\" > \"$(dirname \"$0\")/child-pid\"\nexec /bin/sleep 120\n"
+        // Publish the PID only after this same process can handle termination.
+        // A shell PID written before exec could be observed during the handoff.
+        let script = """
+        #!/usr/bin/env node
+        const fs = require('node:fs');
+        const path = require('node:path');
+        const root = path.dirname(process.argv[1]);
+        process.on('SIGTERM', () => process.exit(0));
+        fs.appendFileSync(path.join(root, 'attempts'), 'x');
+        fs.writeFileSync(path.join(root, 'child-pid'), String(process.pid));
+        setTimeout(() => process.exit(0), 120000);
+        """
         try Data(script.utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         let previous = getenv("GPT_NIANG_NODE").map { String(cString: $0) }
