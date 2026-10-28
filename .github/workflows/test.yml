@@ -16,29 +16,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run the same Node tests that precede Swift in the original check
-        working-directory: gpt-niang-usage
-        run: npm test
       - name: Compile the test bundle before adding load
         run: swift build --package-path macos --build-tests
-      - name: Repeat the full Swift suite under bounded CPU load
+      - name: Capture the first recovery failure under bounded CPU load
         shell: bash
         run: |
-          failures=0
           yes > /dev/null &
           load1=$!
           yes > /dev/null &
           load2=$!
           trap 'kill "$load1" "$load2" 2>/dev/null || true; wait "$load1" "$load2" 2>/dev/null || true' EXIT
-          for attempt in 1 2 3 4; do
-            echo "::group::Full Swift load attempt $attempt"
-            if swift test --package-path macos; then
-              echo "Full Swift load attempt $attempt passed"
-            else
-              failures=$((failures + 1))
-              echo "Full Swift load attempt $attempt failed"
-            fi
+          for attempt in $(seq 1 12); do
+            echo "::group::Recovery diagnostic attempt $attempt"
+            swift test --skip-build --package-path macos --filter WorkerRecoveryTests
             echo "::endgroup::"
           done
-          echo "Full Swift load attempts failed: $failures of 4"
-          test "$failures" -eq 0
