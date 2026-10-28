@@ -18,16 +18,5 @@ jobs:
           node-version: '22'
       - name: Compile the test bundle before adding load
         run: swift build --package-path macos --build-tests
-      - name: Capture the first full-suite recovery failure under bounded CPU load
-        shell: bash
-        run: |
-          yes > /dev/null &
-          load1=$!
-          yes > /dev/null &
-          load2=$!
-          trap 'kill "$load1" "$load2" 2>/dev/null || true; wait "$load1" "$load2" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 6); do
-            echo "::group::Full-suite recovery diagnostic attempt $attempt"
-            swift test --skip-build --package-path macos
-            echo "::endgroup::"
-          done
+      - name: Reproduce the fractional uptime boundary
+        run: swift test --skip-build --package-path macos --filter testFractionalUptimeReachesTheRecoveryDeadline
